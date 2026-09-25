@@ -10,6 +10,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from PIL import Image
 from tqdm import tqdm
+from sklearn.metrics import average_precision_score
 
 from dataset import LandslideDataset
 from SAM2UNet import SAM2UNet
@@ -37,7 +38,7 @@ def load_config(config_path: str) -> Dict[str, Any]:
 def calculate_metrics(pred_prob: np.ndarray, gt_binary: np.ndarray, threshold: float = 0.5):
     """
     Computes standard segmentation metrics:
-    IoU, Dice/F1, Precision, Recall, MAE.
+    IoU, Dice/F1, Precision, Recall, MAE, and mAP (Average Precision / PR-AUC).
     """
     pred_bin = (pred_prob >= threshold).astype(np.float32)
     gt = gt_binary.astype(np.float32)
@@ -54,12 +55,26 @@ def calculate_metrics(pred_prob: np.ndarray, gt_binary: np.ndarray, threshold: f
     recall = (tp + 1e-7) / (tp + fn + 1e-7)
     mae = np.mean(np.abs(pred_prob - gt))
 
+    gt_flat = gt.flatten().astype(np.int32)
+    prob_flat = pred_prob.flatten().astype(np.float32)
+    pos_count = int(gt_flat.sum())
+    if pos_count == 0:
+        ap = 1.0 if np.all(prob_flat < threshold) else 0.0
+    elif pos_count == len(gt_flat):
+        ap = 1.0 if np.all(prob_flat >= threshold) else 0.0
+    else:
+        try:
+            ap = float(average_precision_score(gt_flat, prob_flat))
+        except Exception:
+            ap = 0.0
+
     return {
         "iou": float(iou),
         "dice": float(dice),
         "precision": float(precision),
         "recall": float(recall),
         "mae": float(mae),
+        "map": float(ap),
     }
 
 
