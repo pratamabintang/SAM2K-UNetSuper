@@ -1,0 +1,13 @@
+datasets/
+.agents/
+AGENTS.md
+skills-lock.json
+docs/*
+!docs/adr/
+__pycache__/
+check_dataset_stats.py
+CONTEXT.md
+runs/
+*.pth
+*.pt
+*.sh
