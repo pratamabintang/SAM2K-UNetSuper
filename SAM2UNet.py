@@ -5,6 +5,7 @@ from typing import Optional
 import timm
 from sam2.build_sam import build_sam2
 from ukan_kan import UkanFeatureMapBlock
+from fusion import SSF
 
 
 class DoubleConv(nn.Module):
@@ -149,6 +150,23 @@ class SkipFusion(nn.Module):
         return self.fusion(x)
 
 
+class SSFWrapper(nn.Module):
+    def __init__(self, big: int, small: int, c_out: int = 64):
+        super().__init__()
+        self.conv1 = nn.Conv2d(big, small, kernel_size=1, bias=False)
+        self.fuse = SSF(small)
+        self.conv2 = nn.Conv2d(small, c_out, kernel_size=1, bias=False)
+
+    def forward(self, rgb, topo):
+        rgb = self.conv1(rgb)
+        x = []
+        x.append(rgb)
+        x.append(topo)
+        x = self.fuse(x)
+        x = self.conv2(x)
+        return x
+
+
 class SAM2UNet(nn.Module):
     def __init__(
         self,
@@ -157,11 +175,13 @@ class SAM2UNet(nn.Module):
         topo_backbone: str = "convnext_tiny",
         pretrained_topo: bool = True,
         use_kan: bool = True,
+        use_ssf: bool = False,
     ) -> None:
         super(SAM2UNet, self).__init__()
         self.topo_in_chans = topo_in_chans
         self.topo_backbone_name = topo_backbone
         self.use_kan = use_kan
+        self.use_ssf = use_ssf
 
         model_cfg = "sam2_hiera_l.yaml"
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -205,11 +225,17 @@ class SAM2UNet(nn.Module):
         # self.rfb3 = RFB_modified(576, 64)
         # self.rfb4 = RFB_modified(1152, 64)
 
-        # Linear 1x1 Conv Projections replacing RFB to reduce concatenated features to 64 channels
-        self.proj1 = SkipFusion(144 + topo_channels[0], 64)
-        self.proj2 = SkipFusion(288 + topo_channels[1], 64)
-        self.proj3 = SkipFusion(576 + topo_channels[2], 64)
-        self.proj4 = SkipFusion(1152 + topo_channels[3], 64)
+        if use_ssf: # conv feature rgb ke ukuran topo -> fusion -> conv ke ukuran 64
+            self.proj1 = SSFWrapper(144, topo_channels[0], 64)
+            self.proj2 = SSFWrapper(288, topo_channels[1], 64)
+            self.proj3 = SSFWrapper(576, topo_channels[2], 64)
+            self.proj4 = SSFWrapper(1152, topo_channels[3], 64)
+        else:
+            # Linear 1x1 Conv Projections replacing RFB to reduce concatenated features to 64 channels
+            self.proj1 = SkipFusion(144 + topo_channels[0], 64)
+            self.proj2 = SkipFusion(288 + topo_channels[1], 64)
+            self.proj3 = SkipFusion(576 + topo_channels[2], 64)
+            self.proj4 = SkipFusion(1152 + topo_channels[3], 64)
 
         self.up1 = Up(128, 64, use_kan=use_kan)
         self.up2 = Up(128, 64, use_kan=use_kan)
@@ -233,21 +259,21 @@ class SAM2UNet(nn.Module):
         else:
             x_rgb = x
 
-        # 1. Optical RGB branch (SAM2 Hiera Trunk)
+        # 1. Optical RGB branch (SAM2 Hiera Trunk) (144, 288, 576, 1152)
         x1_rgb, x2_rgb, x3_rgb, x4_rgb = self.encoder(x_rgb)
 
-        # 2. Topography branch (timm ConvNeXt)
+        # 2. Topography branch (timm ConvNeXt) (96, 192, 384, 768)
         topo_feats = self.topo_encoder(x_topo)
-        t1, t2, t3, t4 = topo_feats[0], topo_feats[1], topo_feats[2], topo_feats[3]
+        x1_topo, x2_topo, x3_topo, x4_topo = topo_feats[0], topo_feats[1], topo_feats[2], topo_feats[3]
 
         # RFB forward commented out:
         # x1, x2, x3, x4 = self.rfb1(x1), self.rfb2(x2), self.rfb3(x3), self.rfb4(x4)
 
         # Linear 1x1 projection to 64 channels
-        x1 = self.proj1(x1_rgb, t1)
-        x2 = self.proj2(x2_rgb, t2)
-        x3 = self.proj3(x3_rgb, t3)
-        x4 = self.proj4(x4_rgb, t4)
+        x1 = self.proj1(x1_rgb, x1_topo)
+        x2 = self.proj2(x2_rgb, x2_topo)
+        x3 = self.proj3(x3_rgb, x3_topo)
+        x4 = self.proj4(x4_rgb, x4_topo)
 
         # 3. Decoder with deep supervision
         x = self.up1(x4, x3)
