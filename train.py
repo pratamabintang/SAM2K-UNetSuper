@@ -236,6 +236,7 @@ def main():
     topo_backbone = m_cfg.get("topo_backbone", "convnext_tiny")
     pretrained_topo = m_cfg.get("pretrained_topo", True)
     use_kan = m_cfg.get("use_kan", True)
+    use_ssf = m_cfg.get("use_ssf", False)
 
     logger.info(f"Initializing SAM2UNet (Topo: {topo_backbone}, Pretrained: {pretrained_topo}, KAN Decoder: {use_kan})...")
     model = SAM2UNet(
@@ -244,6 +245,7 @@ def main():
         topo_backbone=topo_backbone,
         pretrained_topo=pretrained_topo,
         use_kan=use_kan,
+        use_ssf=use_ssf
     )
     model.to(device)
 

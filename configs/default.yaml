@@ -1,8 +1,8 @@
 # Configuration for Landslide Segmentation (SAM2 Hiera RGB + ConvNeXt DTM)
 
 experiment:
-  name: "sam2_convnext_rgb_dtm"
-  seed: 1024
+  name: "base"
+  seed: 42
   runs_dir: "runs"
 
 dataset:
@@ -11,8 +11,8 @@ dataset:
     - "IMAGE"
     - "DTM"
   blacklist_path: "datasets/landslide/black_list.txt"
-  size: 352
-  batch_size: 12
+  size: 512
+  batch_size: 4
   num_workers: 4
 
 model:
@@ -20,10 +20,11 @@ model:
   topo_backbone: "convnext_tiny"
   pretrained_topo: true
   use_kan: true
+  use_ssf: true
 
 training:
-  epochs: 20
-  lr: 0.001
+  epochs: 50
+  lr: 0.0001
   weight_decay: 0.0005
   min_lr: 1.0e-7
   save_interval: 5
