@@ -270,9 +270,24 @@ def visualize_from_model(args):
     )
 
     topo_in_chans = sum(1 for m in modalities if m != "IMAGE")
-    m_cfg = config["model"]
+    m_cfg = config.get("model", {})
     topo_backbone = m_cfg.get("topo_backbone", "convnext_tiny")
     use_kan = m_cfg.get("use_kan", True)
+    use_ssf = m_cfg.get("use_ssf", False)
+
+    print(f"Loading checkpoint weights from: {args.checkpoint}")
+    state_dict = torch.load(args.checkpoint, map_location=device)
+    if "state_dict" in state_dict and isinstance(state_dict["state_dict"], dict):
+        state_dict = state_dict["state_dict"]
+
+    # Auto-detect architecture features from state_dict to guarantee compatibility
+    if any(k.startswith("proj1.fuse") or k.startswith("proj1.conv1") for k in state_dict.keys()):
+        use_ssf = True
+    elif any(k.startswith("proj1.fusion") for k in state_dict.keys()):
+        use_ssf = False
+
+    if any("kan." in k for k in state_dict.keys()):
+        use_kan = True
 
     model = SAM2UNet(
         checkpoint_path=None,
@@ -280,9 +295,8 @@ def visualize_from_model(args):
         topo_backbone=topo_backbone,
         pretrained_topo=False,
         use_kan=use_kan,
+        use_ssf=use_ssf,
     )
-    print(f"Loading checkpoint weights from: {args.checkpoint}")
-    state_dict = torch.load(args.checkpoint, map_location=device)
     model.load_state_dict(state_dict)
     model.to(device)
     model.eval()
