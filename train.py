@@ -77,12 +77,14 @@ def setup_logger(log_file: str) -> logging.Logger:
 
 def structure_loss(pred: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
     """Structure loss: Weighted Binary Cross-Entropy + Weighted IoU."""
+    pred = pred.float()
+    mask = mask.float()
     weit = 1 + 5 * torch.abs(F.avg_pool2d(mask, kernel_size=31, stride=1, padding=15) - mask)
     wbce = F.binary_cross_entropy_with_logits(pred, mask, reduction="none")
-    wbce = (weit * wbce).sum(dim=(2, 3)) / weit.sum(dim=(2, 3))
-    pred = torch.sigmoid(pred)
-    inter = ((pred * mask) * weit).sum(dim=(2, 3))
-    union = ((pred + mask) * weit).sum(dim=(2, 3))
+    wbce = (weit * wbce).sum(dim=(2, 3)) / (weit.sum(dim=(2, 3)) + 1e-8)
+    pred_sig = torch.sigmoid(pred)
+    inter = ((pred_sig * mask) * weit).sum(dim=(2, 3))
+    union = ((pred_sig + mask) * weit).sum(dim=(2, 3))
     wiou = 1 - (inter + 1) / (union - inter + 1)
     return (wbce + wiou).mean()
 
@@ -97,7 +99,7 @@ def compute_iou(pred: torch.Tensor, mask: torch.Tensor, threshold: float = 0.5) 
     return inter / (union + 1e-7)
 
 
-def evaluate(model: torch.nn.Module, val_loader: DataLoader, device: torch.device, amp_enabled: bool = False) -> Dict[str, float]:
+def evaluate(model: torch.nn.Module, val_loader: DataLoader, device: torch.device, amp_enabled: bool = False, amp_dtype: torch.dtype = torch.float16) -> Dict[str, float]:
     """Runs evaluation on validation split."""
     model.eval()
     total_loss = 0.0
@@ -110,7 +112,7 @@ def evaluate(model: torch.nn.Module, val_loader: DataLoader, device: torch.devic
             target = batch["label"].to(device, non_blocking=True)
             with torch.autocast(
                 device_type=device.type,
-                dtype=torch.float16,
+                dtype=amp_dtype,
                 enabled=amp_enabled,
             ):
                 out, out1, out2 = model(image)
@@ -267,20 +269,35 @@ def main():
     optimizer = opt.AdamW(trainable_params, lr=lr, weight_decay=weight_decay)
     scheduler = CosineAnnealingLR(optimizer, T_max=epochs, eta_min=min_lr)
 
-    # Memory-safe training controls for a single 15 GB GPU.
+    # Memory-safe training controls for GPU precision and accumulation.
     amp_enabled = bool(t_cfg.get("amp", True)) and device.type == "cuda"
     grad_accum_steps = max(1, int(t_cfg.get("grad_accum_steps", 1)))
-    grad_clip = float(t_cfg.get("grad_clip", 0.0))
+    grad_clip = float(t_cfg.get("grad_clip", 1.0))
+
+    # Precision configuration: support auto/bfloat16 on SM80+ (Blackwell, Hopper, Ada, Ampere)
+    amp_dtype_str = str(t_cfg.get("amp_dtype", "auto")).lower()
+    if amp_dtype_str in ("bfloat16", "bf16"):
+        amp_dtype = torch.bfloat16
+    elif amp_dtype_str in ("float16", "fp16"):
+        amp_dtype = torch.float16
+    else:  # auto
+        if device.type == "cuda" and hasattr(torch.cuda, "is_bf16_supported") and torch.cuda.is_bf16_supported():
+            amp_dtype = torch.bfloat16
+        else:
+            amp_dtype = torch.float16
+
+    use_scaler = amp_enabled and (amp_dtype == torch.float16)
 
     # torch.amp is preferred on current PyTorch; fallback keeps compatibility
     # with older versions allowed by requirements.txt.
     try:
-        scaler = torch.amp.GradScaler("cuda", enabled=amp_enabled)
+        scaler = torch.amp.GradScaler("cuda", enabled=use_scaler)
     except (AttributeError, TypeError):
-        scaler = torch.cuda.amp.GradScaler(enabled=amp_enabled)
+        scaler = torch.cuda.amp.GradScaler(enabled=use_scaler)
 
     logger.info(
-        f"AMP: {amp_enabled} | Gradient accumulation: {grad_accum_steps} "
+        f"AMP: {amp_enabled} (dtype: {amp_dtype}) | Scaler: {use_scaler} "
+        f"| Gradient accumulation: {grad_accum_steps} "
         f"| Effective batch size: {batch_size * grad_accum_steps} "
         f"| Gradient clip: {grad_clip}"
     )
@@ -300,7 +317,7 @@ def main():
 
             with torch.autocast(
                 device_type=device.type,
-                dtype=torch.float16,
+                dtype=amp_dtype,
                 enabled=amp_enabled,
             ):
                 out, out1, out2 = model(image)
@@ -338,7 +355,7 @@ def main():
 
         # Evaluation phase
         if epoch % eval_interval == 0:
-            val_metrics = evaluate(model, val_loader, device, amp_enabled=amp_enabled)
+            val_metrics = evaluate(model, val_loader, device, amp_enabled=amp_enabled, amp_dtype=amp_dtype)
             val_loss = val_metrics["val_loss"]
             val_iou = val_metrics["val_iou"]
             logger.info(f"Validation - Loss: {val_loss:.4f} | IoU: {val_iou:.4f}")

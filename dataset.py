@@ -171,10 +171,18 @@ class LandslideDataset(Dataset):
 
         if modality == "DTM":
             # Per-tile Min-Max Normalization: captures relative local topography
-            val_min = float(arr.min())
-            val_max = float(arr.max())
+            if np.isnan(arr).any() or np.isinf(arr).any():
+                arr = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
+
+            valid_mask = (arr > -1000.0) & (arr < 10000.0)
+            if valid_mask.any():
+                val_min = float(arr[valid_mask].min())
+                val_max = float(arr[valid_mask].max())
+            else:
+                val_min, val_max = 0.0, 0.0
+
             if val_max > val_min:
-                norm_arr = (arr - val_min) / (val_max - val_min)
+                norm_arr = np.clip((arr - val_min) / (val_max - val_min), 0.0, 1.0)
             else:
                 norm_arr = np.zeros_like(arr)
             return torch.from_numpy(norm_arr).unsqueeze(0)  # Shape (1, H, W)

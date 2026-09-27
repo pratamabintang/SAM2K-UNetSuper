@@ -85,12 +85,20 @@ if True:
         if os.path.isdir(_TORCH_LIB):
             os.add_dll_directory(_TORCH_LIB)
 
-    import selective_scan_cuda_core as selective_scan_cuda
+    try:
+        import selective_scan_cuda_core as selective_scan_cuda
+    except ImportError:
+        selective_scan_cuda = None
 
     class SelectiveScan(torch.autograd.Function):
         # @staticmethod
         @torch.cuda.amp.custom_fwd(cast_inputs=torch.float32)
         def forward(ctx, u, delta, A, B, C, D=None, delta_bias=None, delta_softplus=False, nrows=1):
+            if selective_scan_cuda is None:
+                raise ImportError(
+                    "selective_scan_cuda_core is not compiled or not found. "
+                    "Compile it via 'cd selective_scan && pip install -e .'"
+                )
             assert nrows in [1, 2, 3, 4], f"{nrows}"  # 8+ is too slow to compile
             assert u.shape[1] % (B.shape[1] * nrows) == 0, f"{nrows}, {u.shape}, {B.shape}"
             ctx.delta_softplus = delta_softplus
@@ -879,7 +887,7 @@ class DBISSF_Attention(nn.Module):
         plt.savefig(save_dir + 'fea_{}x{}.png'.format(h, w), dpi=300)
 
     def forward(self, x_rgb: torch.Tensor,x_share_rgb, x_e: torch.Tensor,x_share_e):
-        selective_scan = selective_scan_fn_v1
+        selective_scan = SelectiveScan.apply
         B, L, d = x_rgb.shape
         x_rgb = x_rgb.permute(0, 2, 1)
         x_e = x_e.permute(0, 2, 1)

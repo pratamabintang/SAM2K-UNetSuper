@@ -29,3 +29,6 @@ training:
   min_lr: 1.0e-7
   save_interval: 5
   eval_interval: 1
+  amp: true
+  amp_dtype: "auto"
+  grad_clip: 1.0
