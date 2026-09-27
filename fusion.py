@@ -141,6 +141,9 @@ if True:
             dC = dC.squeeze(1) if getattr(ctx, "squeeze_C", False) else dC
             return (du, ddelta, dA, dB, dC, dD, ddelta_bias, None, None)
 
+    def selective_scan_fn(u, delta, A, B, C, D=None, delta_bias=None, delta_softplus=False, nrows=1):
+        return SelectiveScan.apply(u, delta, A, B, C, D, delta_bias, delta_softplus, nrows)
+
 
     class CrossScan(torch.autograd.Function):
         @staticmethod
@@ -887,7 +890,7 @@ class DBISSF_Attention(nn.Module):
         plt.savefig(save_dir + 'fea_{}x{}.png'.format(h, w), dpi=300)
 
     def forward(self, x_rgb: torch.Tensor,x_share_rgb, x_e: torch.Tensor,x_share_e):
-        selective_scan = SelectiveScan.apply
+        selective_scan = selective_scan_fn
         B, L, d = x_rgb.shape
         x_rgb = x_rgb.permute(0, 2, 1)
         x_e = x_e.permute(0, 2, 1)
