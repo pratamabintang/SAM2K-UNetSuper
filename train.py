@@ -28,6 +28,7 @@ def parse_args():
     parser.add_argument("--lr", type=float, default=None, help="Override learning rate")
     parser.add_argument("--hiera_path", type=str, default=None, help="Override SAM2 pretrained checkpoint path")
     parser.add_argument("--topo_backbone", type=str, default=None, help="Override topography backbone (timm)")
+    parser.add_argument("--use_ssf", type=lambda x: (str(x).lower() == 'true'), default=None, help="Enable/disable SSF")
     parser.add_argument("--use_kan", type=lambda x: (str(x).lower() == 'true'), default=None, help="Enable/disable KAN decoder")
     parser.add_argument("--run_name", type=str, default=None, help="Override experiment/run name")
     return parser.parse_args()
@@ -145,6 +146,8 @@ def main():
         config["model"]["topo_backbone"] = args.topo_backbone
     if args.use_kan is not None:
         config["model"]["use_kan"] = args.use_kan
+    if args.use_ssf is not None:
+        config["model"]["use_ssf"] = args.use_ssf
     if args.run_name is not None:
         config["experiment"]["name"] = args.run_name
 
@@ -238,7 +241,7 @@ def main():
     use_kan = m_cfg.get("use_kan", True)
     use_ssf = m_cfg.get("use_ssf", False)
 
-    logger.info(f"Initializing SAM2UNet (Topo: {topo_backbone}, Pretrained: {pretrained_topo}, KAN Decoder: {use_kan})...")
+    logger.info(f"Initializing SAM2UNet (Topo: {topo_backbone}, Pretrained: {pretrained_topo}, KAN Decoder: {use_kan}, SSF: {use_ssf})...")
     model = SAM2UNet(
         checkpoint_path=hiera_path if (hiera_path and os.path.exists(hiera_path)) else None,
         topo_in_chans=max(1, topo_in_chans),

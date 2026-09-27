@@ -8,6 +8,8 @@ from torch.utils import checkpoint
 from torchvision import transforms
 from einops import rearrange, repeat
 import matplotlib.pyplot as plt
+import os
+import sys
 
 DEV = False
 
@@ -47,6 +49,42 @@ except:
     pass
 
 if True:
+    # ============================================================
+    # Local selective_scan CORE extension
+    # ============================================================
+    _SELECTIVE_SCAN_DIR = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "VMamba",
+        "kernels",
+        "selective_scan",
+    )
+
+    if _SELECTIVE_SCAN_DIR not in sys.path:
+        sys.path.insert(0, _SELECTIVE_SCAN_DIR)
+
+    # ============================================================
+    # Windows DLL search paths
+    # ============================================================
+    if os.name == "nt":
+        _CONDA_BIN = os.path.join(
+            os.environ.get("CONDA_PREFIX", ""),
+            "bin",
+        )
+
+        _TORCH_LIB = os.path.join(
+            os.environ.get("CONDA_PREFIX", ""),
+            "Lib",
+            "site-packages",
+            "torch",
+            "lib",
+        )
+
+        if os.path.isdir(_CONDA_BIN):
+            os.add_dll_directory(_CONDA_BIN)
+
+        if os.path.isdir(_TORCH_LIB):
+            os.add_dll_directory(_TORCH_LIB)
+
     import selective_scan_cuda_core as selective_scan_cuda
 
     class SelectiveScan(torch.autograd.Function):
