@@ -104,6 +104,7 @@ def get_ext():
                         + ["--threads", "4"],
             },
             include_dirs=[Path(this_dir) / "csrc" / "selective_scan"],
+            extra_link_args=[f"-Wl,-rpath,{os.path.join(os.path.dirname(torch.__file__), 'lib')}"] if sys.platform.startswith("linux") else [],
         )
     )
 

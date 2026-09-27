@@ -136,6 +136,7 @@ def get_ext():
                         + cc_flag
             },
             include_dirs=[Path(this_dir) / "csrc" / "selective_scan"],
+            extra_link_args=[f"-Wl,-rpath,{os.path.join(os.path.dirname(torch.__file__), 'lib')}"] if sys.platform.startswith("linux") else [],
         )
         for MODE in MODES
     ]

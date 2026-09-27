@@ -114,8 +114,8 @@ The custom CUDA C++ CORE backend accelerates 2D selective scan computations. Com
 # Compile and install in editable mode
 !pip install --no-build-isolation -e .
 
-# Test that the extension imports cleanly
-!python -c "import selective_scan_cuda_core; print('SUCCESS: selective_scan_cuda_core loaded!')"
+# Test that the extension imports cleanly (always import torch first to load libc10.so)
+!python -c "import torch; import selective_scan_cuda_core; print('SUCCESS: selective_scan_cuda_core loaded!')"
 
 %cd /content/SAM2K-UNetSuper
 ```
@@ -311,6 +311,8 @@ If you observe intermittent `Batch Loss: NaN` or `Validation Loss: NaN`:
    - `structure_loss` explicitly promotes predictions and masks to `torch.float32` prior to spatial pooling and adds `+ 1e-8` to the weight reduction denominator.
 4. **Dataset Blacklist**:
    - Ensure `blacklist_path: "datasets/landslide/black_list.txt"` is specified in your config to filter out known corrupted or uncalibrated tiles.
+5. **`ImportError: libc10.so: cannot open shared object file`**:
+   - `libc10.so` is an internal PyTorch library residing in `torch/lib`. In Python scripts, always `import torch` before importing `selective_scan_cuda_core`. The updated `selective_scan/setup.py` also automatically embeds `-Wl,-rpath,<torch/lib>` into the compiled binary on Linux.
 
 ---
 
