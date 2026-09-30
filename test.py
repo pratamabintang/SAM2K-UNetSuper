@@ -25,6 +25,8 @@ def parse_args():
     parser.add_argument("--save_masks", type=lambda x: (str(x).lower() == 'true'), default=True, help="Save prediction PNGs")
     parser.add_argument("--threshold", type=float, default=0.5, help="Binarization probability threshold")
     parser.add_argument("--batch_size", type=int, default=1, help="Evaluation batch size")
+    parser.add_argument("--blacklist_path", type=str, default=None, help="Path to blacklist txt file to skip corrupted data")
+    parser.add_argument("--data_dir", type=str, default=None, help="Override path to dataset directory")
     return parser.parse_args()
 
 
@@ -104,9 +106,18 @@ def main():
     # Dataset & Dataloader
     ds_cfg = config["dataset"]
     modalities = ds_cfg.get("modalities", ["IMAGE", "DTM"])
-    data_dir = ds_cfg.get("data_dir", "datasets/landslide")
-    blacklist_path = ds_cfg.get("blacklist_path", "datasets/landslide/black_list.txt")
+    data_dir = args.data_dir if args.data_dir is not None else ds_cfg.get("data_dir", "datasets/landslide")
+    blacklist_path = args.blacklist_path if args.blacklist_path is not None else ds_cfg.get("blacklist_path", "datasets/landslide/black_list.txt")
+    if str(blacklist_path).lower() in ("none", "null", ""):
+        blacklist_path = None
     target_size = ds_cfg.get("size", 352)
+
+    if blacklist_path and os.path.exists(blacklist_path):
+        from dataset import load_blacklist
+        bl_set = load_blacklist(blacklist_path)
+        print(f"Blacklist active: {len(bl_set)} corrupted/noisy samples will be skipped from '{blacklist_path}'")
+    elif blacklist_path:
+        print(f"Notice: Blacklist path specified but file not found: {blacklist_path}")
 
     dataset = LandslideDataset(
         data_dir=data_dir,
@@ -117,7 +128,7 @@ def main():
         mode="test",
     )
     dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, num_workers=2)
-    print(f"Evaluating {len(dataset)} samples from [{args.split}] split with modalities: {modalities}")
+    print(f"Evaluating {len(dataset)} valid samples from [{args.split}] split with modalities: {modalities}")
 
     # Model initialization
     topo_in_chans = sum(1 for m in modalities if m != "IMAGE")

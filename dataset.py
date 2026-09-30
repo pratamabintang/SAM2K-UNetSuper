@@ -14,10 +14,19 @@ import cv2
 
 def load_blacklist(blacklist_path: Optional[str]) -> set:
     """Loads sample identifiers to ignore from a blacklist text file."""
-    if not blacklist_path or not os.path.exists(blacklist_path):
+    if not blacklist_path or str(blacklist_path).lower() in ("none", "null", ""):
         return set()
+    if not os.path.exists(blacklist_path):
+        return set()
+    blacklist = set()
     with open(blacklist_path, "r", encoding="utf-8") as f:
-        return set(line.strip() for line in f if line.strip())
+        for line in f:
+            clean = line.strip()
+            if not clean or clean.startswith("#"):
+                continue
+            stem, _ = os.path.splitext(clean)
+            blacklist.add(stem)
+    return blacklist
 
 
 class LandslideDataset(Dataset):
@@ -157,9 +166,8 @@ class LandslideDataset(Dataset):
             if not os.path.exists(file_path):
                 raise FileNotFoundError(f"File for modality '{modality}' not found for sample '{sample_name}'")
 
-        img = Image.open(file_path)
-
         if modality == "IMAGE":
+            img = Image.open(file_path)
             rgb_arr = np.array(img.convert("RGB"), dtype=np.uint8)
             if self.mode == "train":
                 rgb_arr = self._apply_photometric_augmentations(rgb_arr)
@@ -167,7 +175,21 @@ class LandslideDataset(Dataset):
             tensor = TF.normalize(tensor, mean=self.IMAGENET_MEAN, std=self.IMAGENET_STD)
             return tensor
 
-        arr = np.array(img, dtype=np.float32)
+        arr = None
+        try:
+            cv_img = cv2.imread(file_path, cv2.IMREAD_UNCHANGED)
+            if cv_img is not None:
+                if cv_img.ndim == 3:
+                    cv_img = cv_img[:, :, 0]
+                arr = cv_img.astype(np.float32)
+        except Exception:
+            pass
+
+        if arr is None:
+            img = Image.open(file_path)
+            arr = np.array(img, dtype=np.float32)
+            if arr.ndim == 3:
+                arr = arr[:, :, 0]
 
         if modality == "DTM":
             # Per-tile Min-Max Normalization: captures relative local topography
