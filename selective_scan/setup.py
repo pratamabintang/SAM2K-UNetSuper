@@ -44,28 +44,41 @@ def get_ext():
 
     print("\n\ntorch.__version__  = {}\n\n".format(torch.__version__))
 
-    # Check, if CUDA11 is installed for compute capability 8.0
+    # Check CUDA version and compute capabilities
+    bare_metal_version = None
     if CUDA_HOME is not None:
-        _, bare_metal_version = get_cuda_bare_metal_version(CUDA_HOME)
-        if bare_metal_version < Version("11.6"):
-            raise RuntimeError(
-                f"package is only supported on CUDA 11.6 and above.  "
-                "Note: make sure nvcc has a supported version by running nvcc -V."
-            )
+        try:
+            _, bare_metal_version = get_cuda_bare_metal_version(CUDA_HOME)
+            if bare_metal_version < Version("11.6"):
+                raise RuntimeError(
+                    f"package is only supported on CUDA 11.6 and above.  "
+                    "Note: make sure nvcc has a supported version by running nvcc -V."
+                )
+        except Exception as e:
+            warnings.warn(f"Failed to query nvcc version: {e}")
 
-    cc_flag.append("-gencode")
-    cc_flag.append("arch=compute_70,code=sm_70")
-    cc_flag.append("-gencode")
-    cc_flag.append("arch=compute_80,code=sm_80")
-    if bare_metal_version >= Version("11.8"):
-        cc_flag.append("-gencode")
-        cc_flag.append("arch=compute_90,code=sm_90")
-    if torch.cuda.is_available():
-        major, minor = torch.cuda.get_device_capability()
-        target_flag = f"arch=compute_{major}{minor},code=sm_{major}{minor}"
-        if target_flag not in cc_flag:
+    arch_list = os.environ.get("TORCH_CUDA_ARCH_LIST", None)
+    if arch_list:
+        for arch in arch_list.replace(" ", ";").split(";"):
+            if arch.strip():
+                arch_clean = arch.strip().replace(".", "")
+                cc_flag.extend(["-gencode", f"arch=compute_{arch_clean},code=sm_{arch_clean}"])
+    else:
+        # CUDA 13.0+ completely dropped support for Volta (compute_70 / sm_70)
+        if bare_metal_version is not None and bare_metal_version < Version("13.0"):
             cc_flag.append("-gencode")
-            cc_flag.append(target_flag)
+            cc_flag.append("arch=compute_70,code=sm_70")
+        cc_flag.append("-gencode")
+        cc_flag.append("arch=compute_80,code=sm_80")
+        if bare_metal_version is not None and bare_metal_version >= Version("11.8"):
+            cc_flag.append("-gencode")
+            cc_flag.append("arch=compute_90,code=sm_90")
+        if torch.cuda.is_available():
+            major, minor = torch.cuda.get_device_capability()
+            target_flag = f"arch=compute_{major}{minor},code=sm_{major}{minor}"
+            if target_flag not in cc_flag:
+                cc_flag.append("-gencode")
+                cc_flag.append(target_flag)
 
     # HACK: The compiler flag -D_GLIBCXX_USE_CXX11_ABI is set to be the same as
     # torch._C._GLIBCXX_USE_CXX11_ABI

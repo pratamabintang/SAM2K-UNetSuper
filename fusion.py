@@ -1,7 +1,10 @@
 import math
 from functools import partial
 from typing import Callable, Any, Optional
-from timm.models.layers import DropPath, to_2tuple, trunc_normal_
+try:
+    from timm.layers import DropPath, to_2tuple, trunc_normal_
+except ImportError:
+    from timm.models.layers import DropPath, to_2tuple, trunc_normal_
 import torch
 import torch.nn as nn
 from torch.utils import checkpoint
@@ -90,9 +93,16 @@ if True:
     except ImportError:
         selective_scan_cuda = None
 
+    try:
+        from torch.amp import custom_fwd as _amp_fwd, custom_bwd as _amp_bwd
+        amp_custom_fwd = partial(_amp_fwd, device_type="cuda")
+        amp_custom_bwd = partial(_amp_bwd, device_type="cuda")
+    except (ImportError, TypeError):
+        from torch.cuda.amp import custom_fwd as amp_custom_fwd, custom_bwd as amp_custom_bwd
+
     class SelectiveScan(torch.autograd.Function):
         # @staticmethod
-        @torch.cuda.amp.custom_fwd(cast_inputs=torch.float32)
+        @amp_custom_fwd(cast_inputs=torch.float32)
         def forward(ctx, u, delta, A, B, C, D=None, delta_bias=None, delta_softplus=False, nrows=1):
             if selective_scan_cuda is None:
                 raise ImportError(
@@ -128,7 +138,7 @@ if True:
             return out
 
         # @staticmethod
-        @torch.cuda.amp.custom_bwd
+        @amp_custom_bwd
         def backward(ctx, dout, *args):
             u, delta, A, B, C, D, delta_bias, x = ctx.saved_tensors
             if dout.stride(-1) != 1:
@@ -142,7 +152,14 @@ if True:
             return (du, ddelta, dA, dB, dC, dD, ddelta_bias, None, None)
 
     def selective_scan_fn(u, delta, A, B, C, D=None, delta_bias=None, delta_softplus=False, nrows=1):
-        return SelectiveScan.apply(u, delta, A, B, C, D, delta_bias, delta_softplus, nrows)
+        if selective_scan_cuda is not None:
+            return SelectiveScan.apply(u, delta, A, B, C, D, delta_bias, delta_softplus, nrows)
+        else:
+            try:
+                from selective_scan.selective_scan.selective_scan_interface import selective_scan_ref
+                return selective_scan_ref(u, delta, A, B, C, D=D, delta_bias=delta_bias, delta_softplus=delta_softplus)
+            except Exception:
+                return SelectiveScan.apply(u, delta, A, B, C, D, delta_bias, delta_softplus, nrows)
 
 
     class CrossScan(torch.autograd.Function):

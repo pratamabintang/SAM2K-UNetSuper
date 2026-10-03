@@ -11,6 +11,11 @@ from torch.utils.data import Dataset
 from PIL import Image
 import cv2
 
+try:
+    cv2.setLogLevel(0)
+except Exception:
+    pass
+
 
 def load_blacklist(blacklist_path: Optional[str]) -> set:
     """Loads sample identifiers to ignore from a blacklist text file."""
