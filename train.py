@@ -53,6 +53,17 @@ def seed_everything(seed: int = 1024):
         torch.backends.cudnn.deterministic = True
 
 
+def seed_worker(worker_id: int):
+    worker_seed = torch.initial_seed() % (2**32)
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)
+    try:
+        import cv2
+        cv2.setLogLevel(0)
+    except Exception:
+        pass
+
+
 def setup_logger(log_file: str) -> logging.Logger:
     logger = logging.getLogger("LandslideSAM2")
     logger.setLevel(logging.INFO)
@@ -213,6 +224,9 @@ def main():
     train_workers = num_workers if (device.type == "cuda" and os.name != "nt") else min(num_workers, 2)
     pin_memory = (device.type == "cuda")
 
+    g = torch.Generator()
+    g.manual_seed(seed)
+
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
@@ -220,6 +234,8 @@ def main():
         num_workers=train_workers,
         pin_memory=pin_memory,
         drop_last=True if len(train_dataset) > batch_size else False,
+        worker_init_fn=seed_worker,
+        generator=g,
     )
     val_loader = DataLoader(
         val_dataset,
@@ -227,6 +243,7 @@ def main():
         shuffle=False,
         num_workers=train_workers,
         pin_memory=pin_memory,
+        worker_init_fn=seed_worker,
     )
 
     logger.info(f"Train Samples: {len(train_dataset)} | Val Samples: {len(val_dataset)}")

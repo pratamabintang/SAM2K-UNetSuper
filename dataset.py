@@ -182,19 +182,22 @@ class LandslideDataset(Dataset):
 
         arr = None
         try:
-            cv_img = cv2.imread(file_path, cv2.IMREAD_UNCHANGED)
-            if cv_img is not None:
-                if cv_img.ndim == 3:
-                    cv_img = cv_img[:, :, 0]
-                arr = cv_img.astype(np.float32)
+            with Image.open(file_path) as img:
+                arr = np.array(img, dtype=np.float32)
+                if arr.ndim == 3:
+                    arr = arr[:, :, 0]
         except Exception:
             pass
 
         if arr is None:
-            img = Image.open(file_path)
-            arr = np.array(img, dtype=np.float32)
-            if arr.ndim == 3:
-                arr = arr[:, :, 0]
+            try:
+                cv_img = cv2.imread(file_path, cv2.IMREAD_UNCHANGED)
+                if cv_img is not None:
+                    if cv_img.ndim == 3:
+                        cv_img = cv_img[:, :, 0]
+                    arr = cv_img.astype(np.float32)
+            except Exception:
+                pass
 
         if modality == "DTM":
             # Per-tile Min-Max Normalization: captures relative local topography
